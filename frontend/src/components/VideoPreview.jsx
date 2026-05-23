@@ -6,6 +6,12 @@ export default function VideoPreview({ videoUrl, onReset, backendUrl }) {
         ? videoUrl 
         : `${backendUrl}${videoUrl}`;
         
+    // Sinh đường dẫn phụ đề SRT tương ứng
+    const srtUrl = videoUrl.replace('final_output.mp4', 'subtitles.srt');
+    const fullSrtUrl = srtUrl.startsWith('http')
+        ? srtUrl
+        : `${backendUrl}${srtUrl}`;
+        
     return (
         <div className="animate-fade-in" style={{ textAlign: 'center' }}>
             <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', fontWeight: 700 }}>
@@ -38,7 +44,7 @@ export default function VideoPreview({ videoUrl, onReset, backendUrl }) {
             </div>
 
             {/* Các nút hành động */}
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '1.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                 <a 
                     href={fullVideoUrl} 
                     download="final_video.mp4" 
@@ -49,13 +55,23 @@ export default function VideoPreview({ videoUrl, onReset, backendUrl }) {
                 >
                     📥 Tải Video Về Máy
                 </a>
+                <a 
+                    href={fullSrtUrl} 
+                    download="subtitles.srt" 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="btn btn-secondary"
+                    style={{ minWidth: '180px', textDecoration: 'none', borderColor: 'rgba(6, 182, 212, 0.4)', color: 'var(--secondary)' }}
+                >
+                    📝 Tải Phụ Đề (.SRT)
+                </a>
                 <button 
                     type="button" 
                     className="btn btn-secondary" 
                     onClick={onReset}
                     style={{ minWidth: '180px' }}
                 >
-                    🔄 Tạo Video Mới
+                    🏠 Quay lại Bảng điều khiển
                 </button>
             </div>
         </div>

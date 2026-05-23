@@ -1,6 +1,7 @@
 import os
 import subprocess
 import logging
+import imageio_ffmpeg
 from pathlib import Path
 from typing import List, Dict, Any
 from moviepy import ImageClip, AudioFileClip
@@ -22,23 +23,24 @@ class VideoComposer:
             clip_duration = duration + 0.2
             image_clip = ImageClip(str(image_path)).with_duration(clip_duration)
             
-            # Áp dụng hiệu ứng động phóng to nhẹ (Ken Burns Zoom)
-            # Tăng nhẹ size từ 100% lên 105% theo thời gian t
-            zoom_clip = image_clip.resized(lambda t: 1.0 + 0.05 * (t / clip_duration))
+            # Giữ nguyên ảnh tĩnh gốc chất lượng cao để tránh hiện tượng nhiễu hạt/nhấp nháy do thuật toán nội suy kích thước lẻ của MoviePy
+            zoom_clip = image_clip
             
             # Gán âm thanh cho clip
             audio_clip = AudioFileClip(str(audio_path))
             video_clip = zoom_clip.with_audio(audio_clip)
             
             # Xuất clip phụ (render tạm)
-            # Sử dụng libx264 và aac, preset ultra-fast để render nhanh nhất có thể cho từng scene
+            # Sử dụng libx264 và aac, preset medium và crf 18 để đảm bảo chất lượng hình ảnh nét căng 100%
+            # Đặt pix_fmt="yuv420p" để video clip tạm thời và video ghép nối (kể cả khi fallback copy trực tiếp) luôn tương thích hoàn hảo với Chrome/Firefox/Edge
             video_clip.write_videofile(
                 str(output_path),
                 fps=24,
                 codec="libx264",
                 audio_codec="aac",
                 logger=None, # Tắt progress bar mặc định của moviepy để tránh spam log
-                preset="ultrafast"
+                preset="medium",
+                ffmpeg_params=["-pix_fmt", "yuv420p", "-crf", "18"]
             )
             
             # Đóng clip giải phóng tài nguyên
@@ -71,13 +73,16 @@ class VideoComposer:
         try:
             logger.info(f"Đang thực hiện ghép nối {len(video_paths)} phân cảnh thành video lớn...")
             
+            # Sử dụng executable ffmpeg từ imageio_ffmpeg để đảm bảo hoạt động trên Windows
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+            
             # Lệnh FFmpeg concatenate không render lại
             # -f concat: chế độ concat demuxer
             # -safe 0: cho phép đường dẫn tuyệt đối
             # -y: tự động ghi đè file cũ
-            # -c copy: sao chép nguyên trạng video/audio stream không re-encode (tốc độ ánh sáng!)
+            # -c copy: sao chép nguyên trạng video/audio stream không re-encode
             cmd = [
-                "ffmpeg", "-y",
+                ffmpeg_exe, "-y",
                 "-f", "concat",
                 "-safe", "0",
                 "-i", str(list_file_path),
@@ -134,74 +139,102 @@ class VideoComposer:
 
     def add_background_music_and_subtitles(self, video_path: Path, music_path: Path, srt_path: Path, output_path: Path) -> Path:
         """
-        Sử dụng FFmpeg để ghép nhạc nền (giảm âm lượng nhạc nền và trộn với giọng đọc)
-        và ghi phụ đề vào video thành phẩm.
+        Sử dụng FFmpeg để ghép nhạc nền và chèn phụ đề vào video thành phẩm.
+        Đảm bảo file output_path luôn được tạo ra (có cơ chế fallback an toàn).
         """
+        import shutil
         output_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Đường dẫn tương đối hoặc tuyệt đối tương thích cho bộ lọc subtitles của FFmpeg
-        # Chú ý: Bộ lọc subtitles của FFmpeg trên Windows thường yêu cầu xử lý ký tự đường dẫn đặc biệt
-        # ví dụ: path phải thay đổi các ký tự '\' thành '/' và escape ký tự ':' thành '\:'
         srt_ffmpeg_path = str(srt_path.resolve()).replace("\\", "/").replace(":", "\\:")
         
+        ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        has_music = music_path and music_path.exists() and music_path.is_file()
+        
+        logger.info(f"Bắt đầu phối trộn nhạc nền & lồng phụ đề (Có nhạc nền: {has_music})...")
+        
+        # Thử nghiệm lần 1: Đầy đủ tính năng
         try:
-            logger.info("Đang xử lý lồng nhạc nền và phụ đề cho video thành phẩm...")
-            
-            # Lệnh FFmpeg để:
-            # 1. Trộn audio từ video gốc (index 0 - giọng đọc) và audio nhạc nền (index 1).
-            # 2. Loop nhạc nền nếu nhạc nền ngắn hơn video (-stream_loop -1).
-            # 3. Sử dụng bộ lọc amix để trộn: giảm volume nhạc nền xuống còn 0.12 (12%), giữ nguyên giọng đọc.
-            # 4. Sử dụng bộ lọc video để chèn phụ đề (subtitles).
-            
-            # Lọc audio: [0:a] là audio video gốc, [1:a] là nhạc nền. 
-            # volume=0.12: giảm âm lượng nhạc nền.
-            # amix=inputs=2:duration=first: Trộn 2 luồng, thời lượng video bằng luồng thứ nhất (video).
-            filter_complex = "[1:a]volume=0.12[bgm];[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
-            
-            cmd = [
-                "ffmpeg", "-y",
-                "-i", str(video_path),
-                "-stream_loop", "-1", "-i", str(music_path),
-                "-filter_complex", filter_complex,
-                "-map", "0:v",
-                "-map", "[aout]",
-                "-vf", f"subtitles='{srt_ffmpeg_path}'",
-                "-c:v", "libx264",
-                "-preset", "medium",
-                "-crf", "22",
-                "-c:a", "aac",
-                "-b:a", "192k",
-                str(output_path)
-            ]
-            
-            process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            
-            if process.returncode != 0:
-                logger.warning(f"Lỗi khi lồng phụ đề/nhạc nền bằng FFmpeg (có thể do lỗi font hoặc thư mục phụ đề). Stderr: {process.stderr}")
-                logger.info("Thử lồng nhạc nền mà KHÔNG chèn phụ đề vào video (người dùng có thể xem phụ đề trên UI)...")
-                # Thử lại chỉ lồng nhạc nền, bỏ filter subtitles
-                cmd_no_sub = [
-                    "ffmpeg", "-y",
+            if has_music:
+                filter_complex = "[1:a]volume=0.12[bgm];[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+                cmd = [
+                    ffmpeg_exe, "-y",
                     "-i", str(video_path),
                     "-stream_loop", "-1", "-i", str(music_path),
                     "-filter_complex", filter_complex,
                     "-map", "0:v",
                     "-map", "[aout]",
-                    "-c:v", "copy", # copy video stream trực tiếp không encode lại
+                    "-vf", f"subtitles='{srt_ffmpeg_path}':force_style='Fontname=Arial,Fontsize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H80000000,BorderStyle=3,Outline=1,Shadow=1,Alignment=2'",
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-preset", "medium",
+                    "-crf", "22",
                     "-c:a", "aac",
                     "-b:a", "192k",
                     str(output_path)
                 ]
-                process_no_sub = subprocess.run(cmd_no_sub, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-                if process_no_sub.returncode != 0:
-                    raise Exception(f"Lỗi lồng nhạc nền. Stderr: {process_no_sub.stderr}")
-                    
-            logger.info(f"Đã xuất video hoàn chỉnh thành công: {output_path}")
-            return output_path
+            else:
+                # Không có nhạc, chỉ chèn phụ đề và giữ nguyên audio thuyết minh gốc
+                cmd = [
+                    ffmpeg_exe, "-y",
+                    "-i", str(video_path),
+                    "-vf", f"subtitles='{srt_ffmpeg_path}':force_style='Fontname=Arial,Fontsize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H80000000,BorderStyle=3,Outline=1,Shadow=1,Alignment=2'",
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-preset", "medium",
+                    "-crf", "22",
+                    "-c:a", "aac",
+                    "-b:a", "192k",
+                    str(output_path)
+                ]
+            
+            logger.info(f"Thực thi lệnh FFmpeg: {' '.join(cmd[:10])}...")
+            process = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            
+            if process.returncode == 0:
+                logger.info(f"Đã xuất video hoàn chỉnh thành công: {output_path}")
+                return output_path
+                
+            logger.warning(f"Lệnh FFmpeg thất bại với exit code {process.returncode}. Stderr: {process.stderr}")
             
         except Exception as e:
-            logger.error(f"Lỗi khi lồng nhạc nền và phụ đề: {str(e)}")
-            # Nếu toàn bộ thất bại, trả về video gốc để dự án vẫn có kết quả
+            logger.error(f"Lỗi khi thực thi FFmpeg lần 1: {str(e)}")
+            
+        # Thử nghiệm lần 2: Fallback nếu lỗi phụ đề (ví dụ do lỗi font hoặc đường dẫn srt)
+        if has_music:
+            try:
+                logger.info("Thử lồng nhạc nền mà KHÔNG chèn phụ đề để tránh crash...")
+                filter_complex = "[1:a]volume=0.12[bgm];[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+                cmd_fallback = [
+                    ffmpeg_exe, "-y",
+                    "-i", str(video_path),
+                    "-stream_loop", "-1", "-i", str(music_path),
+                    "-filter_complex", filter_complex,
+                    "-map", "0:v",
+                    "-map", "[aout]",
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-preset", "medium",
+                    "-crf", "22",
+                    "-c:a", "aac",
+                    "-b:a", "192k",
+                    str(output_path)
+                ]
+                process = subprocess.run(cmd_fallback, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if process.returncode == 0:
+                    logger.info(f"Đã xuất video fallback (chỉ lồng nhạc) thành công: {output_path}")
+                    return output_path
+            except Exception as fe:
+                logger.error(f"Lỗi khi lồng nhạc fallback: {str(fe)}")
+                
+        # Thử nghiệm lần 3: Fallback an toàn tuyệt đối - sao chép file gốc sang file final_output
+        try:
+            logger.info("Mọi phương án render nâng cao đều thất bại. Sao chép trực tiếp file video thô sang final_output để giữ tính hoạt động của ứng dụng.")
+            shutil.copy(str(video_path), str(output_path))
+            logger.info(f"Đã hoàn thành sao chép file video thô sang {output_path}")
+            return output_path
+        except Exception as copy_err:
+            logger.error(f"Không thể sao chép tệp fallback: {str(copy_err)}")
             return video_path
 
     def _format_srt_time(self, seconds: float) -> str:

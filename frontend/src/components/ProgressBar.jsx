@@ -22,6 +22,7 @@ export default function ProgressBar({ status, progress, message, errorMsg, onRes
                                 border: '4px solid rgba(139, 92, 246, 0.1)', 
                                 borderTopColor: 'var(--primary)', 
                                 borderRightColor: 'var(--secondary)',
+                                boxShadow: '0 0 15px rgba(6, 182, 212, 0.25), inset 0 0 15px rgba(139, 92, 246, 0.25)',
                                 animation: 'spin 1.5s linear infinite' 
                             }} 
                         />
@@ -52,7 +53,8 @@ export default function ProgressBar({ status, progress, message, errorMsg, onRes
                             alignItems: 'center',
                             justifyContent: 'center',
                             fontSize: '2.5rem',
-                            color: 'var(--danger)'
+                            color: 'var(--danger)',
+                            boxShadow: '0 0 15px rgba(239, 68, 68, 0.2)'
                         }}
                     >
                         ✗
@@ -61,7 +63,7 @@ export default function ProgressBar({ status, progress, message, errorMsg, onRes
             </div>
 
             {/* Thanh tiến trình */}
-            <div style={{ maxWidth: '600px', margin: '0 auto 2rem' }}>
+            <div style={{ maxWidth: '600px', margin: '0 auto 2rem', padding: '0 1rem' }}>
                 <div 
                     style={{ 
                         height: '8px', 
@@ -112,22 +114,17 @@ export default function ProgressBar({ status, progress, message, errorMsg, onRes
                 </div>
             </div>
 
-            {/* Nút quay lại nếu lỗi */}
-            {isFailed && (
-                <div style={{ marginTop: '2rem' }}>
-                    <button type="button" className="btn btn-secondary" onClick={onReset}>
-                        ◀ Quay lại cấu hình & thử lại
+            {/* Nút điều hướng chân trang */}
+            <div style={{ marginTop: '2.5rem', display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                {isFailed && (
+                    <button type="button" className="btn btn-primary" onClick={onReset} style={{ background: 'var(--danger)', color: '#fff', boxShadow: 'none' }}>
+                        ◀ Thử lại cấu hình
                     </button>
-                </div>
-            )}
-
-            {/* Animation inline style */}
-            <style>{`
-                @keyframes spin {
-                    0% { transform: rotate(0deg); }
-                    100% { transform: rotate(360deg); }
-                }
-            `}</style>
+                )}
+                <button type="button" className="btn btn-secondary" onClick={onReset}>
+                    🏠 Quay lại Bảng điều khiển
+                </button>
+            </div>
         </div>
     );
 }

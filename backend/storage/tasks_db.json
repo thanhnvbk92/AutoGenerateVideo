@@ -1,0 +1,123 @@
+{
+  "988e023a-6c67-4237-96e2-431dc01e132d": {
+    "task_id": "988e023a-6c67-4237-96e2-431dc01e132d",
+    "status": "processing",
+    "progress": 6,
+    "message": "Đang tạo phân cảnh 4/35: Sinh giọng đọc & ảnh AI...",
+    "video_url": null
+  },
+  "7f56e876-5229-4127-8b26-bbe4788c9f1a": {
+    "task_id": "7f56e876-5229-4127-8b26-bbe4788c9f1a",
+    "status": "completed",
+    "progress": 100,
+    "message": "Tạo video hoàn tất thành công!",
+    "video_url": "/static/projects/3216684d-1b89-465e-bf13-3d52dcb03f05/final_output.mp4"
+  },
+  "0a6fe292-01cf-45ce-9547-9388b3e98cb0": {
+    "task_id": "0a6fe292-01cf-45ce-9547-9388b3e98cb0",
+    "status": "completed",
+    "progress": 100,
+    "message": "Tạo video hoàn tất thành công!",
+    "video_url": "/static/projects/a0296774-f381-4c36-a7d0-d0c5945583ba/final_output.mp4"
+  },
+  "b407011a-d95a-4b55-a658-5d1916ce9709": {
+    "task_id": "b407011a-d95a-4b55-a658-5d1916ce9709",
+    "status": "completed",
+    "progress": 100,
+    "message": "Tạo video hoàn tất thành công!",
+    "video_url": "/static/projects/aec624a5-4691-4486-a6d1-7f9675608fad/final_output.mp4"
+  },
+  "dce9e2b1-84be-4eab-aa29-d6bb575f7eec": {
+    "task_id": "dce9e2b1-84be-4eab-aa29-d6bb575f7eec",
+    "status": "completed",
+    "progress": 100,
+    "message": "Tạo video hoàn tất thành công!",
+    "video_url": "/static/projects/a63f4326-74f2-475b-84c8-a0e672e7eb7b/final_output.mp4"
+  },
+  "0fcb68e1-1913-48f7-abb1-9de77612eb06": {
+    "task_id": "0fcb68e1-1913-48f7-abb1-9de77612eb06",
+    "status": "completed",
+    "progress": 100,
+    "message": "Tạo video hoàn tất thành công!",
+    "video_url": "/static/projects/03da1a08-735c-4915-a7b7-4a9b80cf4700/final_output.mp4"
+  },
+  "057db145-e66d-448c-ba1a-9562f6e1bd11": {
+    "task_id": "057db145-e66d-448c-ba1a-9562f6e1bd11",
+    "status": "completed",
+    "progress": 100,
+    "message": "Tạo video hoàn tất thành công!",
+    "video_url": "/static/projects/be458d2d-eb1d-41e3-a926-1443315eae2e/final_output.mp4"
+  },
+  "81e31f57-c78a-4aa1-9858-8f906782bac0": {
+    "task_id": "81e31f57-c78a-4aa1-9858-8f906782bac0",
+    "status": "completed",
+    "progress": 100,
+    "message": "Tạo video hoàn tất thành công!",
+    "video_url": "/static/projects/b1ed8a37-8451-40aa-91b9-ade052dd4c25/final_output.mp4",
+    "last_updated": 1779558349.5833554
+  },
+  "e3b4483a-a3fb-4149-852c-4208501a619b": {
+    "task_id": "e3b4483a-a3fb-4149-852c-4208501a619b",
+    "status": "processing",
+    "progress": 15,
+    "message": "Đã chuẩn bị tài nguyên phân cảnh 10/35...",
+    "video_url": null,
+    "last_updated": 1779559350.3628669
+  },
+  "fc94c916-fbc1-4d45-9f8e-fc486cef5aaa": {
+    "task_id": "fc94c916-fbc1-4d45-9f8e-fc486cef5aaa",
+    "status": "completed",
+    "progress": 100,
+    "message": "Tạo video hoàn tất thành công!",
+    "video_url": "/static/projects/c11513f2-1e5e-4934-aea5-27e06a72a25b/final_output.mp4",
+    "last_updated": 1779558877.1992147
+  },
+  "436b676f-bb2c-42fb-9bd4-70128833626d": {
+    "task_id": "436b676f-bb2c-42fb-9bd4-70128833626d",
+    "status": "failed",
+    "progress": 40,
+    "message": "Lỗi: got an unexpected keyword argument 'pix_fmt'",
+    "video_url": null,
+    "last_updated": 1779559035.8532887
+  },
+  "08dec8ce-e5c1-466a-8f36-16f22ea3bf7d": {
+    "task_id": "08dec8ce-e5c1-466a-8f36-16f22ea3bf7d",
+    "status": "failed",
+    "progress": 60,
+    "message": "Lỗi: No such file: 'D:\\Dev\\Project\\AutoGenerateVideo\\backend\\storage\\projects\\15325282-7243-43d0-9ba5-206664f0a5f1\\images\\scene_2.jpg'",
+    "video_url": null,
+    "last_updated": 1779559114.978946
+  },
+  "b68bf462-e82c-4b2f-82a5-1f222f67ca09": {
+    "task_id": "b68bf462-e82c-4b2f-82a5-1f222f67ca09",
+    "status": "failed",
+    "progress": 60,
+    "message": "Lỗi: No such file: 'D:\\Dev\\Project\\AutoGenerateVideo\\backend\\storage\\projects\\1b4b619f-1b7d-41b6-947e-6aceba93e5f6\\images\\scene_2.jpg'",
+    "video_url": null,
+    "last_updated": 1779559210.9458966
+  },
+  "085a5fc4-3906-492a-bb48-6671ec01301a": {
+    "task_id": "085a5fc4-3906-492a-bb48-6671ec01301a",
+    "status": "failed",
+    "progress": 60,
+    "message": "Lỗi: No such file: 'D:\\Dev\\Project\\AutoGenerateVideo\\backend\\storage\\projects\\79ba65ea-f78c-4490-86a6-d93e47a6d3a2\\images\\scene_2.jpg'",
+    "video_url": null,
+    "last_updated": 1779559221.9036345
+  },
+  "a2c31599-2199-4dc9-8d7e-8e60c38349ff": {
+    "task_id": "a2c31599-2199-4dc9-8d7e-8e60c38349ff",
+    "status": "failed",
+    "progress": 40,
+    "message": "Lỗi: Could not find a backend to open `D:\\Dev\\Project\\AutoGenerateVideo\\backend\\storage\\projects\\d8e523eb-d32b-4273-810c-6dee8ec48066\\images\\scene_1.jpg`` with iomode `ri`.\nBased on the extension, the following plugins might add capable backends:\n  pyav:  pip install imageio[pyav]\n  opencv:  pip install imageio[opencv]",
+    "video_url": null,
+    "last_updated": 1779559212.2297342
+  },
+  "d431439c-b940-4322-b818-8929be7f9a26": {
+    "task_id": "d431439c-b940-4322-b818-8929be7f9a26",
+    "status": "failed",
+    "progress": 40,
+    "message": "Lỗi: Could not find a backend to open `D:\\Dev\\Project\\AutoGenerateVideo\\backend\\storage\\projects\\96cb05fd-c34d-4979-abb3-a04b3e018539\\images\\scene_1.jpg`` with iomode `ri`.\nBased on the extension, the following plugins might add capable backends:\n  pyav:  pip install imageio[pyav]\n  opencv:  pip install imageio[opencv]",
+    "video_url": null,
+    "last_updated": 1779559223.0013235
+  }
+}

@@ -24,6 +24,27 @@ export default function ScriptEditor({ scriptData, onBack, onGenerateVideo, load
         setScenes(reordered);
     };
 
+    const handleMoveScene = (index, direction) => {
+        if (direction === 'up' && index === 0) return;
+        if (direction === 'down' && index === scenes.length - 1) return;
+        
+        const targetIndex = direction === 'up' ? index - 1 : index + 1;
+        const updatedScenes = [...scenes];
+        
+        // Đổi chỗ hai phân cảnh
+        const temp = updatedScenes[index];
+        updatedScenes[index] = updatedScenes[targetIndex];
+        updatedScenes[targetIndex] = temp;
+        
+        // Sắp xếp lại số thứ tự phân cảnh scene_number
+        const reordered = updatedScenes.map((scene, i) => ({
+            ...scene,
+            scene_number: i + 1
+        }));
+        
+        setScenes(reordered);
+    };
+
     const handleAddScene = () => {
         const newSceneNum = scenes.length + 1;
         const newScene = {
@@ -46,7 +67,7 @@ export default function ScriptEditor({ scriptData, onBack, onGenerateVideo, load
 
     return (
         <div className="animate-fade-in">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
                 <h2 style={{ fontSize: '1.5rem', fontWeight: 700 }}>
                     2. Biên Tập Kịch Bản Phân Cảnh
                 </h2>
@@ -90,19 +111,41 @@ export default function ScriptEditor({ scriptData, onBack, onGenerateVideo, load
                             position: 'relative'
                         }}
                     >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.75rem' }}>
                             <span className="badge" style={{ background: 'var(--primary-glow)', color: 'var(--primary)', border: '1px solid rgba(139, 92, 246, 0.2)', fontSize: '0.85rem', padding: '0.35rem 0.9rem' }}>
                                 Phân cảnh #{scene.scene_number}
                             </span>
-                            <button
-                                type="button"
-                                className="btn btn-secondary"
-                                style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.2)' }}
-                                onClick={() => handleSceneDelete(index)}
-                                disabled={loading}
-                            >
-                                Xóa Cảnh
-                            </button>
+                            <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', fontWeight: 'bold' }}
+                                    onClick={() => handleMoveScene(index, 'up')}
+                                    disabled={loading || index === 0}
+                                    title="Di chuyển lên"
+                                >
+                                    ▲
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', fontWeight: 'bold' }}
+                                    onClick={() => handleMoveScene(index, 'down')}
+                                    disabled={loading || index === scenes.length - 1}
+                                    title="Di chuyển xuống"
+                                >
+                                    ▼
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.2)' }}
+                                    onClick={() => handleSceneDelete(index)}
+                                    disabled={loading}
+                                >
+                                    Xóa Cảnh
+                                </button>
+                            </div>
                         </div>
 
                         {/* Lời thoại */}

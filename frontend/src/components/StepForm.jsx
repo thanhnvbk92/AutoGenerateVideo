@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const CHARACTER_PRESETS = [
     {
@@ -15,12 +15,34 @@ const CHARACTER_PRESETS = [
     }
 ];
 
-export default function StepForm({ onSubmit, loading }) {
+export default function StepForm({ onSubmit, loading, backendUrl }) {
     const [topic, setTopic] = useState("");
     const [charDesc, setCharDesc] = useState(CHARACTER_PRESETS[0].desc);
     const [voice, setVoice] = useState("vi-VN-HoaiMyNeural");
     const [duration, setDuration] = useState(7);
     const [seed, setSeed] = useState(() => Math.floor(Math.random() * 1000000));
+    const [useMusic, setUseMusic] = useState(true);
+    const [bgMusic, setBgMusic] = useState("default_music.mp3");
+    const [musicList, setMusicList] = useState(["default_music.mp3"]);
+
+    // Lấy danh sách nhạc nền từ API
+    useEffect(() => {
+        const fetchMusicList = async () => {
+            try {
+                const res = await fetch(`${backendUrl || "http://localhost:8000"}/api/music-list`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.music_files && data.music_files.length > 0) {
+                        setMusicList(data.music_files);
+                        setBgMusic(data.music_files[0]);
+                    }
+                }
+            } catch (err) {
+                console.error("Lỗi khi tải danh sách nhạc:", err);
+            }
+        };
+        fetchMusicList();
+    }, [backendUrl]);
 
     const handlePresetSelect = (desc) => {
         setCharDesc(desc);
@@ -39,7 +61,9 @@ export default function StepForm({ onSubmit, loading }) {
             character_description: charDesc,
             voice_type: voice,
             duration_minutes: duration,
-            seed
+            seed,
+            use_music: useMusic,
+            bg_music_name: bgMusic
         });
     };
 
@@ -95,19 +119,38 @@ export default function StepForm({ onSubmit, loading }) {
                 </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem' }}>
+            <div className="responsive-grid-2">
                 {/* Giọng đọc */}
                 <div className="form-group">
                     <label className="form-label" htmlFor="voice">Giọng đọc thuyết minh (Edge-TTS)</label>
-                    <select
-                        id="voice"
-                        className="form-select"
-                        value={voice}
-                        onChange={(e) => setVoice(e.target.value)}
-                    >
-                        <option value="vi-VN-HoaiMyNeural">Hoài Mỹ (Giọng Nữ Việt Nam cực mượt)</option>
-                        <option value="vi-VN-NamMinhNeural">Nam Minh (Giọng Nam Việt Nam trầm ấm)</option>
-                    </select>
+                    <div style={{ display: 'flex', gap: '0.75rem' }}>
+                        <select
+                            id="voice"
+                            className="form-select"
+                            value={voice}
+                            onChange={(e) => setVoice(e.target.value)}
+                            style={{ flex: 1 }}
+                        >
+                            <option value="vi-VN-HoaiMyNeural">Hoài Mỹ (Giọng Nữ VN cực mượt)</option>
+                            <option value="vi-VN-NamMinhNeural">Nam Minh (Giọng Nam VN trầm ấm)</option>
+                        </select>
+                        <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={async () => {
+                                try {
+                                    const audioUrl = `${backendUrl || "http://localhost:8000"}/api/preview-voice?voice=${voice}`;
+                                    const audio = new Audio(audioUrl);
+                                    await audio.play();
+                                } catch (err) {
+                                    alert("Không thể phát thử giọng đọc này!");
+                                }
+                            }}
+                            style={{ whiteSpace: 'nowrap', padding: '0.8rem 1.2rem' }}
+                        >
+                            🔊 Nghe Thử
+                        </button>
+                    </div>
                 </div>
 
                 {/* Độ dài */}
@@ -123,6 +166,39 @@ export default function StepForm({ onSubmit, loading }) {
                         <option value={5}>Khoảng 5 phút (Vừa phải)</option>
                         <option value={7}>Khoảng 7-8 phút (Yêu cầu của bạn)</option>
                         <option value={10}>Khoảng 10 phút (Dài)</option>
+                    </select>
+                </div>
+            </div>
+
+            {/* Nhạc nền */}
+            <div className="responsive-grid-1-2" style={{ marginTop: '0.5rem', marginBottom: '1.5rem', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', height: '100%' }}>
+                    <input
+                        id="use-music"
+                        type="checkbox"
+                        checked={useMusic}
+                        onChange={(e) => setUseMusic(e.target.checked)}
+                        style={{ width: '18px', height: '18px', cursor: 'pointer', accentColor: 'var(--primary)' }}
+                    />
+                    <label className="form-label" htmlFor="use-music" style={{ margin: 0, cursor: 'pointer', userSelect: 'none' }}>
+                        Sử dụng Nhạc nền
+                    </label>
+                </div>
+
+                <div>
+                    <label className="form-label" htmlFor="bg-music">Chọn bản nhạc nền</label>
+                    <select
+                        id="bg-music"
+                        className="form-select"
+                        value={bgMusic}
+                        onChange={(e) => setBgMusic(e.target.value)}
+                        disabled={!useMusic}
+                    >
+                        {musicList.map((file, idx) => (
+                            <option key={idx} value={file}>
+                                {file === 'default_music.mp3' ? 'Nhạc nền mặc định (Chill nhẹ)' : file}
+                            </option>
+                        ))}
                     </select>
                 </div>
             </div>

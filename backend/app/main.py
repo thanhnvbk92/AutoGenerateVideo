@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.config import settings
@@ -14,6 +15,7 @@ from app.services.script_gen import script_generator
 from app.services.tts_gen import tts_generator
 from app.services.image_gen import image_generator
 from app.services.video_comp import video_composer
+from app.services.task_manager import task_manager
 
 # Thiết lập ghi log
 logging.basicConfig(
@@ -34,9 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Lưu trữ trạng thái của các task render ngầm trong bộ nhớ tạm (in-memory)
-# Trong môi trường sản xuất, nên dùng Redis hoặc DB
-tasks_status: Dict[str, Dict[str, Any]] = {}
+# Trạng thái của các task render được quản lý bởi task_manager lưu bền vững trong file JSON
 
 # Đảm bảo các thư mục tĩnh và storage tồn tại trước khi mount
 settings.create_directories()
@@ -71,12 +71,54 @@ class VideoGenerateRequest(BaseModel):
     seed: int = 42
     voice_type: str = "vi-VN-HoaiMyNeural"
     use_music: bool = True
+    bg_music_name: str = "default_music.mp3"
 
 # --- API ENDPOINTS ---
 
 @app.get("/")
 def read_root():
     return {"message": "Chào mừng đến với API tự động tạo video (Auto Video Generator)!"}
+
+@app.get("/api/music-list")
+def get_music_list():
+    """
+    API lấy danh sách các tệp nhạc nền có sẵn.
+    """
+    music_dir = settings.STORAGE_DIR / "music"
+    music_dir.mkdir(exist_ok=True)
+    
+    # Lấy các file .mp3 trong thư mục music
+    music_files = [f.name for f in music_dir.glob("*.mp3")]
+    
+    # Luôn thêm nhạc mặc định nếu tồn tại
+    if (settings.STORAGE_DIR / "default_music.mp3").exists():
+        music_files.insert(0, "default_music.mp3")
+    else:
+        # Nếu chưa có file nào, thêm một item giả lập để hiển thị
+        if not music_files:
+            music_files.append("default_music.mp3")
+            
+    return {"music_files": music_files}
+
+@app.get("/api/preview-voice")
+async def preview_voice(voice: str = "vi-VN-HoaiMyNeural"):
+    """
+    API sinh hoặc trả về file âm thanh nghe thử ngắn cho giọng đọc được chọn.
+    """
+    sample_text = "Chào bạn! Đây là giọng đọc thuyết minh thử nghiệm của tôi."
+    preview_dir = settings.STORAGE_DIR / "previews"
+    preview_dir.mkdir(exist_ok=True)
+    preview_path = preview_dir / f"{voice}_preview.mp3"
+    
+    try:
+        # Nếu chưa có file preview, sinh file bằng TTS
+        if not preview_path.exists():
+            await tts_generator.generate_voice(sample_text, preview_path, voice)
+            
+        return FileResponse(path=str(preview_path), media_type="audio/mpeg", filename=f"{voice}_preview.mp3")
+    except Exception as e:
+        logger.error(f"Lỗi khi tạo preview giọng đọc: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Không thể sinh giọng đọc thử nghiệm: {str(e)}")
 
 @app.post("/api/generate-script")
 async def generate_script(req: ScriptRequest):
@@ -101,19 +143,19 @@ async def generate_video(req: VideoGenerateRequest, background_tasks: Background
     API 2: Nhận kịch bản đã chỉnh sửa, khởi chạy Task chạy ngầm để render video và trả về Task ID.
     """
     task_id = str(uuid.uuid4())
-    tasks_status[task_id] = {
+    task_manager.set_task(task_id, {
         "task_id": task_id,
         "status": "processing",
         "progress": 0,
         "message": "Đang chuẩn bị dự án...",
         "video_url": None
-    }
+    })
     
     # Đẩy tác vụ render xuống background task
     background_tasks.add_task(
         run_video_generation_flow,
         task_id=task_id,
-        request_data=req.dict()
+        request_data=req.model_dump()
     )
     
     return {"task_id": task_id, "message": "Quá trình sinh video đã được bắt đầu ngầm."}
@@ -123,9 +165,27 @@ async def get_task_status(task_id: str):
     """
     API 3: API truy vấn tiến độ render video từ Frontend theo thời gian thực.
     """
-    if task_id not in tasks_status:
+    task = task_manager.get_task(task_id)
+    if not task:
         raise HTTPException(status_code=404, detail="Không tìm thấy thông tin task này.")
-    return tasks_status[task_id]
+    return task
+
+@app.get("/api/projects")
+def get_projects_list():
+    """
+    API lấy danh sách tất cả các dự án (tasks) đã tạo, sắp xếp theo thời gian cập nhật mới nhất.
+    """
+    try:
+        db = task_manager._read_db()
+        sorted_tasks = sorted(
+            db.values(),
+            key=lambda x: x.get("last_updated", 0),
+            reverse=True
+        )
+        return {"projects": sorted_tasks}
+    except Exception as e:
+        logger.error(f"Lỗi khi lấy danh sách dự án: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Không thể lấy danh sách dự án: {str(e)}")
 
 # --- BACKGROUND WORKER LOGIC ---
 
@@ -156,35 +216,87 @@ async def run_video_generation_flow(task_id: str, request_data: Dict[str, Any]):
     logger.info(f"Khởi chạy Task {task_id} cho dự án {project_id} có {total_scenes} phân cảnh.")
     
     try:
+        # Cơ chế tải tài nguyên (TTS & Image) song song tối đa 5 tác vụ đồng thời
+        sem = asyncio.Semaphore(5)
+        # Semaphore giới hạn tối đa 1 tác vụ gọi Pollinations AI đồng thời để tránh lỗi 402 Queue Full theo IP
+        image_sem = asyncio.Semaphore(1)
+        
+        completed_assets = 0
+        results = []
+        
+        async def fetch_assets_for_scene(idx, scene):
+            nonlocal completed_assets
+            async with sem:
+                scene_num = scene.get("scene_number", idx + 1)
+                
+                # 1. Sinh âm thanh giọng đọc (TTS) có cơ chế tận dụng cache
+                narration = scene.get("narration_text", "")
+                audio_path = audio_dir / f"scene_{scene_num}.mp3"
+                
+                if audio_path.exists() and audio_path.stat().st_size > 0:
+                    logger.info(f"Đã có sẵn file âm thanh cho phân cảnh {scene_num}, sử dụng cache.")
+                    # Đọc thời lượng từ file audio có sẵn
+                    from moviepy import AudioFileClip
+                    try:
+                        audio_clip = AudioFileClip(str(audio_path))
+                        duration = audio_clip.duration
+                        audio_clip.close()
+                    except Exception:
+                        # Nếu file lỗi, tạo lại
+                        duration = await tts_generator.generate_voice(narration, audio_path, voice_type)
+                else:
+                    duration = await tts_generator.generate_voice(narration, audio_path, voice_type)
+                
+                # 2. Sinh ảnh nhân vật đồng nhất (Pollinations AI) có cơ chế tận dụng cache
+                visual_prompt = scene.get("visual_prompt", "")
+                image_path = images_dir / f"scene_{scene_num}.jpg"
+                
+                if image_path.exists() and image_path.stat().st_size > 0:
+                    logger.info(f"Đã có sẵn file hình ảnh cho phân cảnh {scene_num}, sử dụng cache.")
+                else:
+                    async with image_sem:
+                        await asyncio.to_thread(
+                            image_generator.generate_image,
+                            prompt=visual_prompt,
+                            output_path=image_path,
+                            seed=seed + idx
+                        )
+                
+                completed_assets += 1
+                # Cập nhật tiến độ tải tài nguyên: từ 5% đến 40%
+                download_progress = 5 + int((completed_assets / total_scenes) * 35)
+                task_manager.update_task(task_id, {
+                    "progress": download_progress,
+                    "message": f"Đã chuẩn bị tài nguyên phân cảnh {completed_assets}/{total_scenes}..."
+                })
+                
+                return idx, audio_path, image_path, duration
+
+        # Khởi chạy song song
+        task_manager.update_task(task_id, {
+            "progress": 5,
+            "message": f"Bắt đầu tải song song tài nguyên cho {total_scenes} phân cảnh..."
+        })
+        
+        download_tasks = [fetch_assets_for_scene(idx, scene) for idx, scene in enumerate(scenes)]
+        results = await asyncio.gather(*download_tasks)
+        
+        # Sắp xếp kết quả theo đúng thứ tự phân cảnh ban đầu
+        results.sort(key=lambda x: x[0])
+        
         scene_video_paths = []
         audio_durations = []
         
-        # Vòng lặp sinh tài nguyên và render cho từng phân cảnh
-        for idx, scene in enumerate(scenes):
-            scene_num = scene.get("scene_number", idx + 1)
+        # Render tuần tự các phân cảnh từ tài nguyên đã chuẩn bị
+        for idx, audio_path, image_path, duration in results:
+            scene_num = idx + 1
             
-            # Cập nhật status: Tiến độ sinh tài nguyên của từng scene chiếm từ 0% đến 80% tổng tiến độ
-            current_progress = int((idx / total_scenes) * 80)
-            tasks_status[task_id]["progress"] = current_progress
-            tasks_status[task_id]["message"] = f"Đang tạo phân cảnh {scene_num}/{total_scenes}: Sinh giọng đọc & ảnh AI..."
-            
-            # 1. Sinh âm thanh giọng đọc (TTS)
-            narration = scene.get("narration_text", "")
-            audio_path = audio_dir / f"scene_{scene_num}.mp3"
-            # Gọi async service
-            duration = await tts_generator.generate_voice(narration, audio_path, voice_type)
-            audio_durations.append(duration)
-            
-            # 2. Sinh ảnh nhân vật đồng nhất (Pollinations AI)
-            visual_prompt = scene.get("visual_prompt", "")
-            image_path = images_dir / f"scene_{scene_num}.jpg"
-            # Pollinations là GET HTTP đồng bộ, chạy trên thread pool để tránh block event loop
-            await asyncio.to_thread(
-                image_generator.generate_image,
-                prompt=visual_prompt,
-                output_path=image_path,
-                seed=seed
-            )
+            # Cập nhật status render: chiếm từ 40% đến 80% tổng tiến độ
+            render_progress = 40 + int((idx / total_scenes) * 40)
+            task_manager.update_task(task_id, {
+                "progress": render_progress,
+                "message": f"Đang render video phân cảnh {scene_num}/{total_scenes}..."
+            })
             
             # 3. Render video phân cảnh tạm thời (MoviePy)
             scene_video_path = scenes_dir / f"scene_{scene_num}.mp4"
@@ -196,13 +308,16 @@ async def run_video_generation_flow(task_id: str, request_data: Dict[str, Any]):
                 duration=duration
             )
             scene_video_paths.append(scene_video_path)
+            audio_durations.append(duration)
             
-            # Cho event loop nghỉ một chút để không block tài nguyên hệ thống
-            await asyncio.sleep(0.1)
+            # Cho event loop nghỉ một chút để giải phóng CPU
+            await asyncio.sleep(0.05)
 
         # 4. Ghép nối các video tạm thời bằng FFmpeg Concat (80% -> 90%)
-        tasks_status[task_id]["progress"] = 80
-        tasks_status[task_id]["message"] = "Đang thực hiện ghép nối các phân cảnh..."
+        task_manager.update_task(task_id, {
+            "progress": 80,
+            "message": "Đang thực hiện ghép nối các phân cảnh..."
+        })
         
         concatenated_video_path = project_dir / "concatenated.mp4"
         await asyncio.to_thread(
@@ -221,15 +336,28 @@ async def run_video_generation_flow(task_id: str, request_data: Dict[str, Any]):
         )
         
         # 6. Trộn nhạc nền & hardcode phụ đề (90% -> 100%)
-        tasks_status[task_id]["progress"] = 90
-        tasks_status[task_id]["message"] = "Đang phối trộn nhạc nền và tạo phụ đề hoàn chỉnh..."
+        task_manager.update_task(task_id, {
+            "progress": 90,
+            "message": "Đang phối trộn nhạc nền và tạo phụ đề hoàn chỉnh..."
+        })
         
         final_video_path = project_dir / "final_output.mp4"
         
-        # Kiểm tra xem có sử dụng nhạc nền không
-        music_path = DEFAULT_MUSIC_PATH if (use_music and DEFAULT_MUSIC_PATH.exists()) else None
+        # Lấy tên nhạc nền được chọn từ request
+        bg_music_name = request_data.get("bg_music_name", "default_music.mp3")
+        music_path = None
         
-        if music_path:
+        if use_music:
+            if bg_music_name == "default_music.mp3":
+                music_path = DEFAULT_MUSIC_PATH
+            else:
+                music_path = settings.STORAGE_DIR / "music" / bg_music_name
+            
+            # Fallback nếu file nhạc chọn không tồn tại
+            if music_path and not music_path.exists():
+                music_path = DEFAULT_MUSIC_PATH if DEFAULT_MUSIC_PATH.exists() else None
+        
+        if music_path and music_path.exists():
             await asyncio.to_thread(
                 video_composer.add_background_music_and_subtitles,
                 video_path=concatenated_video_path,
@@ -261,14 +389,50 @@ async def run_video_generation_flow(task_id: str, request_data: Dict[str, Any]):
             logger.warning(f"Lỗi dọn dẹp tệp tạm: {str(cleanup_err)}")
             
         # Cập nhật kết quả hoàn tất
-        tasks_status[task_id]["status"] = "completed"
-        tasks_status[task_id]["progress"] = 100
-        tasks_status[task_id]["message"] = "Tạo video hoàn tất thành công!"
-        tasks_status[task_id]["video_url"] = f"/static/projects/{project_id}/final_output.mp4"
+        video_url = f"/static/projects/{project_id}/final_output.mp4"
+        task_manager.update_task(task_id, {
+            "status": "completed",
+            "progress": 100,
+            "message": "Tạo video hoàn tất thành công!",
+            "video_url": video_url
+        })
         
-        logger.info(f"Task {task_id} hoàn thành xuất sắc! Video link: {tasks_status[task_id]['video_url']}")
+        logger.info(f"Task {task_id} hoàn thành xuất sắc! Video link: {video_url}")
         
     except Exception as err:
         logger.error(f"Lỗi nghiêm trọng trong quá trình xử lý Task {task_id}: {str(err)}")
-        tasks_status[task_id]["status"] = "failed"
-        tasks_status[task_id]["message"] = f"Lỗi: {str(err)}"
+        task_manager.update_task(task_id, {
+            "status": "failed",
+            "message": f"Lỗi: {str(err)}"
+        })
+
+# --- HỆ THỐNG TỰ ĐỘNG GIÁM SÁT & TỰ PHỤC HỒI (MONITORING & AUTO-RECOVERY) ---
+
+async def monitor_tasks_health():
+    """
+    Tiến trình giám sát chạy ngầm: Tự động quét và giải phóng các Task bị kẹt (Stuck) quá 3 phút.
+    """
+    import time
+    while True:
+        try:
+            await asyncio.sleep(30)  # Quét định kỳ mỗi 30 giây
+            db = task_manager._read_db()
+            now = time.time()
+            for task_id, task in db.items():
+                if task.get("status") == "processing":
+                    last_updated = task.get("last_updated", now)
+                    # Nếu task ở trạng thái processing quá 3 phút (180 giây) không cập nhật
+                    if now - last_updated > 180:
+                        logger.warning(f"Phát hiện Task bị kẹt (Stuck): {task_id}. Tiến hành tự động giải cứu...")
+                        task_manager.update_task(task_id, {
+                            "status": "failed",
+                            "message": "Hệ thống tự động phát hiện tiến trình bị kẹt quá lâu và đã giải phóng tài nguyên. Bạn có thể nhấn tạo lại để tiếp tục."
+                        })
+        except Exception as e:
+            logger.error(f"Lỗi trong luồng giám sát Task Health: {str(e)}")
+
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Khởi chạy Luồng giám sát sức khỏe Task (Auto-Recovery Monitor)...")
+    asyncio.create_task(monitor_tasks_health())
+
